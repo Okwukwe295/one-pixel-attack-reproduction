@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 
 import argparse
 import pickle
@@ -92,80 +93,243 @@ class PixelAttacker:
         return [model.name, pixel_count, img_id, actual_class, predicted_class, success, cdiff, prior_probs,
                 predicted_probs, attack_result.x]
 
-    def attack_all(self, models, samples=500, pixels=(1, 3, 5), targeted=False,
-                   maxiter=75, popsize=400, verbose=False):
+    def attack_all(self, models, samples=100, pixels=(1,), targeted=False, maxiter=75, popsize=400, verbose=False, seed=42):
         results = []
+
+        rng = np.random.default_rng(seed)
+
         for model in models:
             model_results = []
-            valid_imgs = self.correct_imgs[self.correct_imgs.name == model.name].img
-            img_samples = np.random.choice(valid_imgs, samples)
+
+            valid_imgs = self.correct_imgs[
+                self.correct_imgs.name == model.name
+            ].img.to_numpy()
+
+            if samples > len(valid_imgs):
+                raise ValueError(
+                    f"Requested {samples} images but only "
+                    f"{len(valid_imgs)} are correctly classified."
+                )
+
+            img_samples = rng.choice(
+                valid_imgs,
+                size=samples,
+                replace=False
+            )
+
+            print(f"Selected {samples} images using seed {seed}")
 
             for pixel_count in pixels:
                 for i, img in enumerate(img_samples):
-                    print(model.name, '- image', img, '-', i + 1, '/', len(img_samples))
+
+                    print(
+                        model.name,
+                        '- image',
+                        img,
+                        '-',
+                        i + 1,
+                        '/',
+                        len(img_samples)
+                    )
+
                     targets = [None] if not targeted else range(10)
 
                     for target in targets:
+
                         if targeted:
-                            print('Attacking with target', self.class_names[target])
+                            print(
+                                'Attacking with target',
+                                self.class_names[target]
+                            )
+
                             if target == self.y_test[img, 0]:
                                 continue
-                        result = self.attack(img, model, target, pixel_count,
-                                             maxiter=maxiter, popsize=popsize,
-                                             verbose=verbose)
+
+                        result = self.attack(
+                            img,
+                            model,
+                            target,
+                            pixel_count,
+                            maxiter=maxiter,
+                            popsize=popsize,
+                            verbose=verbose
+                        )
+
                         model_results.append(result)
 
             results += model_results
             helper.checkpoint(results, targeted)
+
         return results
 
 
 if __name__ == '__main__':
+
     model_defs = {
-        'lenet': LeNet,
-        'pure_cnn': PureCnn,
-        'net_in_net': NetworkInNetwork,
         'resnet': ResNet,
-        'densenet': DenseNet,
-        'wide_resnet': WideResNet,
-        'capsnet': CapsNet
     }
 
-    parser = argparse.ArgumentParser(description='Attack models on Cifar10')
-    parser.add_argument('--model', nargs='+', choices=model_defs.keys(), default=model_defs.keys(),
-                        help='Specify one or more models by name to evaluate.')
-    parser.add_argument('--pixels', nargs='+', default=(1, 3, 5), type=int,
-                        help='The number of pixels that can be perturbed.')
-    parser.add_argument('--maxiter', default=75, type=int,
-                        help='The maximum number of iterations in the differential evolution algorithm before giving up and failing the attack.')
-    parser.add_argument('--popsize', default=400, type=int,
-                        help='The number of adversarial images generated each iteration in the differential evolution algorithm. Increasing this number requires more computation.')
-    parser.add_argument('--samples', default=500, type=int,
-                        help='The number of image samples to attack. Images are sampled randomly from the dataset.')
-    parser.add_argument('--targeted', action='store_true', help='Set this switch to test for targeted attacks.')
-    parser.add_argument('--save', default='networks/results/results.pkl', help='Save location for the results (pickle)')
-    parser.add_argument('--verbose', action='store_true', help='Print out additional information every iteration.')
+    parser = argparse.ArgumentParser(
+        description='One Pixel Attack reproduction on CIFAR-10'
+    )
+
+    parser.add_argument(
+        '--model',
+        nargs='+',
+        choices=model_defs.keys(),
+        default=['resnet']
+    )
+
+    parser.add_argument(
+        '--pixels',
+        nargs='+',
+        default=[1],
+        type=int
+    )
+
+    parser.add_argument(
+        '--maxiter',
+        default=75,
+        type=int
+    )
+
+    parser.add_argument(
+        '--popsize',
+        default=400,
+        type=int
+    )
+
+    parser.add_argument(
+        '--samples',
+        default=100,
+        type=int
+    )
+
+    parser.add_argument(
+        '--seed',
+        default=42,
+        type=int
+    )
+
+    parser.add_argument(
+        '--targeted',
+        action='store_true'
+    )
+
+    parser.add_argument(
+        '--save',
+        default='results/results.pkl'
+    )
+
+    parser.add_argument(
+        '--verbose',
+        action='store_true'
+    )
 
     args = parser.parse_args()
 
-    # Load data and model
+    # Reproducibility
+    np.random.seed(args.seed)
+
+    # Ensure output directories exist
+    os.makedirs('results', exist_ok=True)
+    os.makedirs('networks/results', exist_ok=True)
+
+    # CIFAR-10 test data
     _, test = cifar10.load_data()
-    class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
-    models = [model_defs[m](load_weights=True) for m in args.model]
 
-    attacker = PixelAttacker(models, test, class_names)
+    class_names = [
+        'airplane',
+        'automobile',
+        'bird',
+        'cat',
+        'deer',
+        'dog',
+        'frog',
+        'horse',
+        'ship',
+        'truck'
+    ]
 
-    print('Starting attack')
+    # Load pretrained model
+    models = [
+        model_defs[m](load_weights=True)
+        for m in args.model
+    ]
 
-    results = attacker.attack_all(models, samples=args.samples, pixels=args.pixels, targeted=args.targeted,
-                                  maxiter=args.maxiter, popsize=args.popsize, verbose=args.verbose)
+    attacker = PixelAttacker(
+        models,
+        test,
+        class_names
+    )
 
-    columns = ['model', 'pixels', 'image', 'true', 'predicted', 'success', 'cdiff', 'prior_probs', 'predicted_probs',
-               'perturbation']
-    results_table = pd.DataFrame(results, columns=columns)
+    print('\nNetwork statistics:')
+    print(attacker.network_stats)
 
-    print(results_table[['model', 'pixels', 'image', 'true', 'predicted', 'success']])
+    print('\nStarting attack')
 
-    print('Saving to', args.save)
+    results = attacker.attack_all(
+        models,
+        samples=args.samples,
+        pixels=args.pixels,
+        targeted=args.targeted,
+        maxiter=args.maxiter,
+        popsize=args.popsize,
+        verbose=args.verbose,
+        seed=args.seed
+    )
+
+    columns = [
+        'model',
+        'pixels',
+        'image',
+        'true',
+        'predicted',
+        'success',
+        'cdiff',
+        'prior_probs',
+        'predicted_probs',
+        'perturbation'
+    ]
+
+    results_table = pd.DataFrame(
+        results,
+        columns=columns
+    )
+
+    print('\nResults:')
+    print(
+        results_table[
+            [
+                'model',
+                'pixels',
+                'image',
+                'true',
+                'predicted',
+                'success',
+                'cdiff'
+            ]
+        ]
+    )
+
+    if len(results_table) > 0:
+        success_rate = results_table['success'].mean()
+
+        print(
+            f'\nAttack Success Rate: '
+            f'{success_rate * 100:.2f}%'
+        )
+
+    print('\nSaving pickle to', args.save)
+
     with open(args.save, 'wb') as file:
         pickle.dump(results, file)
+
+    csv_path = args.save.replace('.pkl', '.csv')
+
+    results_table.to_csv(
+        csv_path,
+        index=False
+    )
+
+    print('Saving CSV to', csv_path)
