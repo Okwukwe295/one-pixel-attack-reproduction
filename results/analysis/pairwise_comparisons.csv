@@ -1,0 +1,3 @@
+comparison,DE1_only,Random1_only,both,neither,p_value,DE3_only,DE5_only
+DE1 vs Random1,7.0,0.0,26,67,0.015625,,
+DE3 vs DE5,,,75,17,0.7265625,3.0,5.0
