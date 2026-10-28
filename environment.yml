@@ -1,0 +1,17 @@
+name: one-pixel-reproduction
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10.11
+  - pip=24.0
+  - pip:
+      - tensorflow==2.15.1
+      - keras==2.15.0
+      - numpy==1.26.4
+      - pandas==1.5.3
+      - scipy==1.11.4
+      - matplotlib==3.8.4
+      - h5py==3.10.0
+      - ipython==8.18.1
+      - tqdm==4.66.5
+      - requests==2.32.3
